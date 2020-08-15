@@ -4,20 +4,21 @@ import com.cleanair.airquality.controller.KafkaController;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 
 @Configuration
 public class AirQualityApplicationConfiguration {
+
+    @Value("${zookeeper.groupId}")
+    private String zookeeperGroupId;
 
     @Value("${kafka.bootstrap.servers}")
     private String kafkaBootstrapServers;
@@ -40,9 +41,33 @@ public class AirQualityApplicationConfiguration {
     }
 
     @Bean
+    public Properties consumerProperties() {
+        Properties consumerProperties = new Properties();
+        consumerProperties.put("bootstrap.servers", kafkaBootstrapServers);
+        consumerProperties.put("group.id", zookeeperGroupId);
+        consumerProperties.put("zookeeper.session.timeout.ms", "6000");
+        consumerProperties.put("zookeeper.sync.time.ms", "2000");
+        consumerProperties.put("auto.commit.enable", "false");
+        consumerProperties.put("auto.commit.interval.ms", "1000");
+        consumerProperties.put("consumer.timeout.ms", "-1");
+        consumerProperties.put("max.poll.records", "1");
+        consumerProperties.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        consumerProperties.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        return consumerProperties;
+    }
+
+    @Bean
     @DependsOn({"producerProperties"})
     public KafkaProducer<String, String> kafkaProducer(Properties producerProperties) {
         return new KafkaProducer<>(producerProperties);
+    }
+
+    @Bean
+    @DependsOn({"consumerProperties"})
+    public KafkaConsumer<String, String> kafkaConsumer(Properties consumerProperties) {
+        KafkaConsumer<String, String> kafkaConsumer = new KafkaConsumer<>(consumerProperties);
+        kafkaConsumer.subscribe(Collections.singletonList(kafkaTopic));
+        return kafkaConsumer;
     }
 
     @Bean
@@ -61,8 +86,8 @@ public class AirQualityApplicationConfiguration {
     }
 
     @Bean
-    @DependsOn({"kafkaProducer"})
-    public KafkaController kafkaController(KafkaProducer<String, String> kafkaProducer) {
-        return new KafkaController(kafkaProducer, kafkaTopic);
+    @DependsOn({"kafkaProducer", "kafkaConsumer"})
+    public KafkaController kafkaController(KafkaProducer<String, String> kafkaProducer, KafkaConsumer<String, String> kafkaConsumer) {
+        return new KafkaController(kafkaProducer, kafkaConsumer, kafkaTopic);
     }
 }
