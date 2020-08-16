@@ -1,4 +1,4 @@
-package com.cleanair.airquality;
+package com.cleanair.airquality.config;
 
 import com.cleanair.airquality.controller.KafkaController;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -50,7 +50,7 @@ public class AirQualityApplicationConfiguration {
         consumerProperties.put("auto.commit.enable", "false");
         consumerProperties.put("auto.commit.interval.ms", "1000");
         consumerProperties.put("consumer.timeout.ms", "-1");
-        consumerProperties.put("max.poll.records", "1");
+        consumerProperties.put("max.poll.records", "5");
         consumerProperties.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         consumerProperties.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         return consumerProperties;

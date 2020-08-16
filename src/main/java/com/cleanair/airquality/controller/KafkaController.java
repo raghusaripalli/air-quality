@@ -5,13 +5,17 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.util.logging.Logger;
+
 @RequestMapping
 public class KafkaController {
 
+    private static final Logger logger = Logger.getLogger(String.valueOf(KafkaController.class));
     private final KafkaProducer<String, String> kafkaProducer;
     private final KafkaConsumer<String, String> kafkaConsumer;
     private final String kafkaTopic;
@@ -28,9 +32,10 @@ public class KafkaController {
         return new ResponseEntity<>("Added " + word + " to Kafka Topic", HttpStatus.OK);
     }
 
-    @GetMapping("/consume")
-    public ResponseEntity<String> consumer() {
+    @Scheduled(fixedDelay = 5000)
+    public void consume() {
         String response = KafkaService.consumeMessages(kafkaConsumer);
-        return new ResponseEntity<>(response, HttpStatus.OK);
+        if (response.length() != 0)
+            logger.info(response);
     }
 }
