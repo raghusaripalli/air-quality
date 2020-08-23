@@ -1,17 +1,22 @@
 package com.cleanair.airquality.config;
 
 import com.cleanair.airquality.controller.KafkaController;
+import com.cleanair.airquality.dao.Measurement;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 @Configuration
@@ -26,6 +31,18 @@ public class AirQualityApplicationConfiguration {
     @Value("${kafka.topic}")
     private String kafkaTopic;
 
+    @Value("${kafka.producer.keySerializer}")
+    private String keySerializer;
+
+    @Value("${kafka.consumer.keyDeserializer}")
+    private String keyDeserializer;
+
+    @Value("${kafka.producer.valueSerializer}")
+    private String valueSerializer;
+
+    @Value("${kafka.consumer.valueDeserializer}")
+    private String valueDeserializer;
+
     @Bean
     public Properties producerProperties() {
         Properties producerProperties = new Properties();
@@ -35,8 +52,8 @@ public class AirQualityApplicationConfiguration {
         producerProperties.put("batch.size", 16384);
         producerProperties.put("linger.ms", 1);
         producerProperties.put("buffer.memory", 33554432);
-        producerProperties.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        producerProperties.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+        producerProperties.put("key.serializer", keySerializer);
+        producerProperties.put("value.serializer", valueSerializer);
         return producerProperties;
     }
 
@@ -51,23 +68,25 @@ public class AirQualityApplicationConfiguration {
         consumerProperties.put("auto.commit.interval.ms", "1000");
         consumerProperties.put("consumer.timeout.ms", "-1");
         consumerProperties.put("max.poll.records", "5");
-        consumerProperties.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        consumerProperties.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
+        consumerProperties.put("spring.json.trusted.packages", "*");
+        consumerProperties.put("value.deserializer", valueDeserializer);
+        consumerProperties.put("key.deserializer", keyDeserializer);
         return consumerProperties;
     }
 
     @Bean
-    @DependsOn({"producerProperties"})
-    public KafkaProducer<String, String> kafkaProducer(Properties producerProperties) {
-        return new KafkaProducer<>(producerProperties);
+    @DependsOn({"consumerProperties"})
+    public ConcurrentKafkaListenerContainerFactory<String, Measurement> customKafkaListenerContainerFactory(Properties consumerProperties) {
+        ConcurrentKafkaListenerContainerFactory<String, Measurement> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(new DefaultKafkaConsumerFactory(consumerProperties));
+        return factory;
     }
 
     @Bean
-    @DependsOn({"consumerProperties"})
-    public KafkaConsumer<String, String> kafkaConsumer(Properties consumerProperties) {
-        KafkaConsumer<String, String> kafkaConsumer = new KafkaConsumer<>(consumerProperties);
-        kafkaConsumer.subscribe(Collections.singletonList(kafkaTopic));
-        return kafkaConsumer;
+    @DependsOn({"producerProperties"})
+    public KafkaProducer<String, Measurement> kafkaProducer(Properties producerProperties) {
+        return new KafkaProducer<>(producerProperties);
     }
 
     @Bean
@@ -86,8 +105,8 @@ public class AirQualityApplicationConfiguration {
     }
 
     @Bean
-    @DependsOn({"kafkaProducer", "kafkaConsumer"})
-    public KafkaController kafkaController(KafkaProducer<String, String> kafkaProducer, KafkaConsumer<String, String> kafkaConsumer) {
-        return new KafkaController(kafkaProducer, kafkaConsumer, kafkaTopic);
+    @DependsOn({"kafkaProducer"})
+    public KafkaController kafkaController(KafkaProducer<String, Measurement> kafkaProducer) {
+        return new KafkaController(kafkaProducer, kafkaTopic);
     }
 }

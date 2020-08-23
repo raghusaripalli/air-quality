@@ -1,41 +1,46 @@
 package com.cleanair.airquality.controller;
 
+import com.cleanair.airquality.dao.Measurement;
 import com.cleanair.airquality.service.KafkaService;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-
-import java.util.logging.Logger;
 
 @RequestMapping
 public class KafkaController {
-
-    private static final Logger logger = Logger.getLogger(String.valueOf(KafkaController.class));
-    private final KafkaProducer<String, String> kafkaProducer;
-    private final KafkaConsumer<String, String> kafkaConsumer;
+    Logger log = LoggerFactory.getLogger(KafkaController.class);
+    private final KafkaProducer<String, Measurement> kafkaProducer;
     private final String kafkaTopic;
 
-    public KafkaController(KafkaProducer<String, String> kafkaProducer, KafkaConsumer<String, String> kafkaConsumer, String kafkaTopic) {
+    @Autowired
+    KafkaService kafkaService;
+
+    public KafkaController(KafkaProducer<String, Measurement> kafkaProducer, String kafkaTopic) {
         this.kafkaProducer = kafkaProducer;
-        this.kafkaConsumer = kafkaConsumer;
         this.kafkaTopic = kafkaTopic;
     }
 
     @GetMapping("/produce")
-    public ResponseEntity<String> producer(@RequestParam(value = "word", defaultValue = "abc") String word) {
-        KafkaService.sendKafkaMessage(word, kafkaProducer, kafkaTopic);
-        return new ResponseEntity<>("Added " + word + " to Kafka Topic", HttpStatus.OK);
+    public ResponseEntity<String> producer() {
+        try {
+            log.info("Received Request to put data into kafka");
+            kafkaService.sendKafkaMessage(kafkaProducer, kafkaTopic);
+            log.info("Data send to kafka topic successfully.");
+            return new ResponseEntity<>(HttpStatus.OK);
+        } catch (Exception ex) {
+            log.error("Error while sending message to kafka topic", ex);
+            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
-    @Scheduled(fixedDelay = 5000)
-    public void consume() {
-        String response = KafkaService.consumeMessages(kafkaConsumer);
-        if (response.length() != 0)
-            logger.info(response);
+    @KafkaListener(topics = "${kafka.topic}", groupId = "${zookeeper.groupId}", containerFactory = "customKafkaListenerContainerFactory")
+    public void consume(Measurement result) {
+        kafkaService.consumeKafkaMessage(result);
     }
 }

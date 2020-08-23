@@ -1,28 +1,57 @@
 package com.cleanair.airquality.service;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import com.cleanair.airquality.dao.Measurement;
+import com.cleanair.airquality.dao.Response;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponents;
+import org.springframework.web.util.UriComponentsBuilder;
 
-import java.time.Duration;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Objects;
+import java.util.TimeZone;
 
-
+@Service
 public class KafkaService {
-    private static final String COMMA = ",";
+    private final Logger log = LoggerFactory.getLogger(KafkaService.class);
 
-    public static void sendKafkaMessage(String payload, KafkaProducer<String, String> producer, String topic) {
-        producer.send(new ProducerRecord<>(topic, payload));
+    public void sendKafkaMessage(KafkaProducer<String, Measurement> producer, String topic) {
+        RestTemplate restTemplate = new RestTemplate();
+        long total = 50;
+        int page = 1;
+        int limit = 10000;
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+        dateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+        String past_hour = dateFormat.format(new Date(System.currentTimeMillis() - 3600 * 1000));
+        do {
+            UriComponents uri = UriComponentsBuilder.newInstance()
+                    .scheme("https")
+                    .host("api.openaq.org")
+                    .path("v1/measurements")
+                    .queryParam("limit", limit)
+                    .queryParam("page", page)
+                    .queryParam("has_geo", true)
+                    .queryParam("date_from", past_hour)
+                    .build();
+            ResponseEntity<Response> responseEntity = restTemplate.getForEntity(uri.toUri(), Response.class);
+            if (responseEntity.getStatusCode().is2xxSuccessful()) {
+                Response response = responseEntity.getBody();
+                String found = Objects.requireNonNull(response).getMeta().get("found");
+                total = (long) Math.ceil(Long.parseLong(found) / (limit * 1.0));
+                response.getResults().forEach(measurement -> producer.send(new ProducerRecord<>(topic, measurement)));
+            }
+            ++page;
+        } while (page < total);
     }
 
-    public static String consumeMessages(KafkaConsumer<String, String> consumer) {
-        ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(10L));
-        StringBuilder response = new StringBuilder();
-        for (ConsumerRecord<String, String> record : records) {
-            response.append(record.value());
-            response.append(COMMA);
-        }
-        return response.toString();
+    public void consumeKafkaMessage(Measurement measurement) {
+        log.info(measurement.toString());
+        // TODO: Process records and store them in staging area
     }
 }
