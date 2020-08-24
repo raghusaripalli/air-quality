@@ -6,6 +6,9 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +45,12 @@ public class AirQualityApplicationConfiguration {
 
     @Value("${kafka.consumer.valueDeserializer}")
     private String valueDeserializer;
+
+    @Value("${spark.master}")
+    private String master;
+
+    @Value("${spark.appName}")
+    private String appName;
 
     @Bean
     public Properties producerProperties() {
@@ -108,5 +117,29 @@ public class AirQualityApplicationConfiguration {
     @DependsOn({"kafkaProducer"})
     public KafkaController kafkaController(KafkaProducer<String, Measurement> kafkaProducer) {
         return new KafkaController(kafkaProducer, kafkaTopic);
+    }
+
+    @Bean
+    @DependsOn({"kafkaProducer"})
+    public SparkSession sparkSession() {
+        return SparkSession
+                .builder()
+                .master(master)
+                .appName(appName)
+                .config("spark.jars.repositories", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.0.0")
+                .getOrCreate();
+    }
+
+    @Bean
+    @DependsOn({"kafkaProducer", "sparkSession"})
+    public Dataset<Row> measurementDataSet(SparkSession sparkSession) {
+        Dataset<Row> ds = sparkSession
+                .readStream()
+                .format("kafka")
+                .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+                .option("subscribe", kafkaTopic)
+                .load();
+        ds.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)");
+        return ds;
     }
 }
