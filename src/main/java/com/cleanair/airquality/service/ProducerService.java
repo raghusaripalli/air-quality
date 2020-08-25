@@ -18,8 +18,8 @@ import java.util.Objects;
 import java.util.TimeZone;
 
 @Service
-public class KafkaService {
-    private final Logger log = LoggerFactory.getLogger(KafkaService.class);
+public class ProducerService {
+    private Logger log = LoggerFactory.getLogger(ProducerService.class);
 
     public void sendKafkaMessage(KafkaProducer<String, Measurement> producer, String topic) {
         RestTemplate restTemplate = new RestTemplate();
@@ -30,7 +30,7 @@ public class KafkaService {
         dateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
         String past_hour = dateFormat.format(new Date(System.currentTimeMillis() - 3600 * 1000));
         do {
-            UriComponents uri = UriComponentsBuilder.newInstance()
+            UriComponents components = UriComponentsBuilder.newInstance()
                     .scheme("https")
                     .host("api.openaq.org")
                     .path("v1/measurements")
@@ -39,7 +39,9 @@ public class KafkaService {
                     .queryParam("has_geo", true)
                     .queryParam("date_from", past_hour)
                     .build();
-            ResponseEntity<Response> responseEntity = restTemplate.getForEntity(uri.toUri(), Response.class);
+            String url = components.toUriString();
+            log.info(url);
+            ResponseEntity<Response> responseEntity = restTemplate.getForEntity(components.toUri(), Response.class);
             if (responseEntity.getStatusCode().is2xxSuccessful()) {
                 Response response = responseEntity.getBody();
                 String found = Objects.requireNonNull(response).getMeta().get("found");
@@ -48,10 +50,5 @@ public class KafkaService {
             }
             ++page;
         } while (page < total);
-    }
-
-    public void consumeKafkaMessage(Measurement measurement) {
-        log.info(measurement.toString());
-        // TODO: Process records and store them in staging area
     }
 }

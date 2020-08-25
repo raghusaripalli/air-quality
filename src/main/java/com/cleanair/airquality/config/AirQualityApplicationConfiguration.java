@@ -2,19 +2,16 @@ package com.cleanair.airquality.config;
 
 import com.cleanair.airquality.controller.KafkaController;
 import com.cleanair.airquality.dao.Measurement;
+import com.cleanair.airquality.service.ConsumerService;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
-import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,32 +64,6 @@ public class AirQualityApplicationConfiguration {
     }
 
     @Bean
-    public Properties consumerProperties() {
-        Properties consumerProperties = new Properties();
-        consumerProperties.put("bootstrap.servers", kafkaBootstrapServers);
-        consumerProperties.put("group.id", zookeeperGroupId);
-        consumerProperties.put("zookeeper.session.timeout.ms", "6000");
-        consumerProperties.put("zookeeper.sync.time.ms", "2000");
-        consumerProperties.put("auto.commit.enable", "false");
-        consumerProperties.put("auto.commit.interval.ms", "1000");
-        consumerProperties.put("consumer.timeout.ms", "-1");
-        consumerProperties.put("max.poll.records", "5");
-        consumerProperties.put("spring.json.trusted.packages", "*");
-        consumerProperties.put("value.deserializer", valueDeserializer);
-        consumerProperties.put("key.deserializer", keyDeserializer);
-        return consumerProperties;
-    }
-
-    @Bean
-    @DependsOn({"consumerProperties"})
-    public ConcurrentKafkaListenerContainerFactory<String, Measurement> customKafkaListenerContainerFactory(Properties consumerProperties) {
-        ConcurrentKafkaListenerContainerFactory<String, Measurement> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(new DefaultKafkaConsumerFactory(consumerProperties));
-        return factory;
-    }
-
-    @Bean
     @DependsOn({"producerProperties"})
     public KafkaProducer<String, Measurement> kafkaProducer(Properties producerProperties) {
         return new KafkaProducer<>(producerProperties);
@@ -115,12 +86,6 @@ public class AirQualityApplicationConfiguration {
 
     @Bean
     @DependsOn({"kafkaProducer"})
-    public KafkaController kafkaController(KafkaProducer<String, Measurement> kafkaProducer) {
-        return new KafkaController(kafkaProducer, kafkaTopic);
-    }
-
-    @Bean
-    @DependsOn({"kafkaProducer"})
     public SparkSession sparkSession() {
         return SparkSession
                 .builder()
@@ -132,14 +97,13 @@ public class AirQualityApplicationConfiguration {
 
     @Bean
     @DependsOn({"kafkaProducer", "sparkSession"})
-    public Dataset<Row> measurementDataSet(SparkSession sparkSession) {
-        Dataset<Row> ds = sparkSession
-                .readStream()
-                .format("kafka")
-                .option("kafka.bootstrap.servers", kafkaBootstrapServers)
-                .option("subscribe", kafkaTopic)
-                .load();
-        ds.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)");
-        return ds;
+    public ConsumerService consumerService(SparkSession sparkSession) {
+        return new ConsumerService(sparkSession, kafkaBootstrapServers, kafkaTopic);
+    }
+
+    @Bean
+    @DependsOn({"kafkaProducer", "consumerService"})
+    public KafkaController kafkaController(KafkaProducer<String, Measurement> kafkaProducer, ConsumerService consumerService) {
+        return new KafkaController(kafkaProducer, kafkaTopic, consumerService);
     }
 }
